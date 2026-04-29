@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spider-Man: The Complete Edition</title>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: 'Arial Black', sans-serif; }
+        canvas { display: none; }
+        
+        #main-menu {
+            position: fixed; width: 100%; height: 100%;
+            background: radial-gradient(circle, #400 0%, #000 100%);
+            display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 2000;
+        }
+        .menu-btn {
+            background: #f00; color: #fff; border: none; padding: 15px 40px;
+            font-size: 20px; margin: 10px; cursor: pointer; border-radius: 50px;
+            transition: 0.2s; width: 450px; font-weight: bold;
+        }
+        .menu-btn:hover { background: #fff; color: #f00; transform: scale(1.05); }
+
+        #game-ui { position: absolute; top: 20px; left: 20px; color: #fff; display: none; z-index: 100; pointer-events: none; }
+        #hp-container { width: 250px; height: 15px; background: #222; border: 2px solid #fff; border-radius: 10px; overflow: hidden; margin: 10px 0; display: none; }
+        #hp-bar { width: 100%; height: 100%; background: #f00; transition: width 0.2s; }
+        
+        #end-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); display: none; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 3000;
+        }
+        
+        /* تنسيق اسمك المعدل */
+        #credits {
+            font-size: 18px;
+            margin-bottom: 30px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .blue-text { color: #00bfff; text-shadow: 0 0 5px #00bfff; }
+        .white-text { color: #ffffff; text-shadow: 0 0 10px #ffffff; }
+    </style>
+</head>
+<body>
+
+<div id="main-menu">
+    <div style="color: #f00; font-size: 50px; margin-bottom: 5px;">SPIDER-MAN HUB</div>
+    <div id="credits">
+        <span class="blue-text">made by </span>
+        <span class="white-text">YAHIA AHMED MAHMODE</span>
+    </div>
+    <button class="menu-btn" onclick="initGame('solo')">SINGLE PLAYER (MAZE & GUNS)</button>
+    <button class="menu-btn" onclick="initGame('duo')">VS MODE (1vs1 ARENA)</button>
+    <button class="menu-btn" onclick="initGame('coop')">CO-OP SURVIVAL (2P TEAM)</button>
+</div>
+
+<div id="game-ui">
+    <div id="status-text" style="font-size: 25px; color: #ff0;">LEVEL: 1</div>
+    <div id="hp-container"><div id="hp-bar"></div></div>
+    <div id="sub-info" style="font-size: 18px; color: #0af;">HEALTH: 100%</div>
+</div>
+
+<div id="end-screen">
+    <div id="end-msg" style="color:white; font-size:40px; margin-bottom:20px; text-align:center;"></div>
+    <button class="menu-btn" onclick="location.reload()">BACK TO MENU</button>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    let mode = "", isRunning = false, keys = {}, mouse = {x:0, y:0, down:false};
+    let TILE = 64, COLS = 31, ROWS = 21;
+    let player1 = {}, player2 = {}, zombies = [], bullets = [], maze = [], timer = 90;
+
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    window.addEventListener('resize', resize); resize();
+
+    function initGame(m) {
+        mode = m; isRunning = true;
+        document.getElementById('main-menu').style.display = 'none';
+        document.getElementById('game-ui').style.display = 'block';
+        canvas.style.display = 'block';
+        if(mode === 'solo') setupSolo();
+        else if(mode === 'duo') setupDuo();
+        else if(mode === 'coop') setupCoop();
+    }
+
+    function setupSolo() {
+        let lvl = parseInt(localStorage.getItem('spiderLvl')) || 1;
+        player1 = { x: TILE*1.5, y: TILE*1.5, r: 18, hp: 100, lvl: lvl };
+        document.getElementById('hp-container').style.display = 'block';
+        document.getElementById('status-text').innerText = "LEVEL: " + player1.lvl;
+        maze = Array.from({length: ROWS}, () => Array(COLS).fill(1));
+        function walk(x, y) {
+            maze[y][x] = 0;
+            let dirs = [[0,2],[0,-2],[2,0],[-2,0]].sort(() => Math.random()-0.5);
+            for(let [dx, dy] of dirs) {
+                let nx = x+dx, ny = y+dy;
+                if(nx>0 && nx<COLS-1 && ny>0 && ny<ROWS-1 && maze[ny][nx] === 1) {
+                    maze[y+dy/2][x+dx/2] = 0; walk(nx, ny);
+                }
+            }
+        }
+        walk(1, 1);
+        zombies = [];
+        for(let i=0; i<5 + lvl; i++) {
+            let zx, zy;
+            do { zx = Math.floor(Math.random()*COLS); zy = Math.floor(Math.random()*ROWS); }
+            while(maze[zy][zx] === 1 || (zx < 5 && zy < 5));
+            zombies.push({ x: zx*TILE + TILE/2, y: zy*TILE + TILE/2, r: 20 });
+        }
+    }
+
+    function setupDuo() {
+        timer = 90;
+        player1 = { x: 100, y: canvas.height/2, r: 25, lives: 3, inv: 0 };
+        player2 = { x: canvas.width-100, y: canvas.height/2, r: 50 };
+        document.getElementById('hp-container').style.display = 'block';
+    }
+
+    function setupCoop() {
+        timer = 180; zombies = [];
+        player1 = { x: 100, y: 100, r: 20, deaths: 0, inv: 0, color: "#f00" };
+        player2 = { x: 100, y: 200, r: 20, deaths: 0, inv: 0, color: "#0af" };
+        for(let i=0; i<20; i++) zombies.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, r: 18 });
+    }
+
+    function update() {
+        if(!isRunning) return;
+        if(mode === 'solo') {
+            let spd = 5, nx = player1.x, ny = player1.y;
+            if(keys['KeyW']) ny -= spd; if(keys['KeyS']) ny += spd;
+            if(keys['KeyA']) nx -= spd; if(keys['KeyD']) nx += spd;
+            if(maze[Math.floor(player1.y/TILE)][Math.floor((nx-player1.r)/TILE)] === 0 && 
+               maze[Math.floor(player1.y/TILE)][Math.floor((nx+player1.r)/TILE)] === 0) player1.x = nx;
+            if(maze[Math.floor((ny-player1.r)/TILE)][Math.floor(player1.x/TILE)] === 0 && 
+               maze[Math.floor((ny+player1.r)/TILE)][Math.floor(player1.x/TILE)] === 0) player1.y = ny;
+            if(mouse.down && Date.now() - (player1.lastS || 0) > 200) {
+                let ang = Math.atan2(mouse.y - canvas.height/2, mouse.x - canvas.width/2);
+                bullets.push({x: player1.x, y: player1.y, vx: Math.cos(ang)*15, vy: Math.sin(ang)*15});
+                player1.lastS = Date.now();
+            }
+            bullets.forEach((b,i) => {
+                b.x += b.vx; b.y += b.vy;
+                if(maze[Math.floor(b.y/TILE)][Math.floor(b.x/TILE)] === 1) bullets.splice(i,1);
+                zombies.forEach((z,j) => { if(Math.hypot(b.x-z.x, b.y-z.y) < 30) { zombies.splice(j,1); bullets.splice(i,1); } });
+            });
+            zombies.forEach(z => {
+                let ang = Math.atan2(player1.y-z.y, player1.x-z.x);
+                z.x += Math.cos(ang)*2.5; z.y += Math.sin(ang)*2.5;
+                if(Math.hypot(player1.x-z.x, player1.y-z.y) < 35) player1.hp -= 0.3;
+            });
+            document.getElementById('hp-bar').style.width = player1.hp + "%";
+            document.getElementById('sub-info').innerText = "HEALTH: " + Math.ceil(player1.hp) + "%";
+            if(player1.hp <= 0) over("GAME OVER");
+            if(zombies.length === 0) { player1.lvl++; localStorage.setItem('spiderLvl', player1.lvl); setupSolo(); }
+        } else if(mode === 'duo' || mode === 'coop') {
+            if(mode === 'duo') {
+                if(keys['KeyW'] && player1.y > 25) player1.y -= 8; if(keys['KeyS'] && player1.y < canvas.height-25) player1.y += 8;
+                if(keys['KeyA'] && player1.x > 25) player1.x -= 8; if(keys['KeyD'] && player1.x < canvas.width-25) player1.x += 8;
+                if(keys['ArrowUp'] && player2.y > 50) player2.y -= 9; if(keys['ArrowDown'] && player2.y < canvas.height-50) player2.y += 9;
+                if(keys['ArrowLeft'] && player2.x > 50) player2.x -= 9; if(keys['ArrowRight'] && player2.x < canvas.width-50) player2.x += 9;
+                if(Math.hypot(player1.x-player2.x, player1.y-player2.y) < 70 && player1.inv <= 0) { player1.lives--; player1.inv = 60; player1.x = 100; if(player1.lives <= 0) over("ZOMBIE WINS!"); }
+                if(player1.inv > 0) player1.inv--;
+                document.getElementById('hp-bar').style.width = (player1.lives/3)*100 + "%";
+                document.getElementById('sub-info').innerText = "LIVES: " + "❤️".repeat(player1.lives);
+            } else {
+                [player1, player2].forEach((p, idx) => {
+                    let k = idx === 0 ? ['KeyW','KeyS','KeyA','KeyD'] : ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+                    if(keys[k[0]] && p.y > 20) p.y -= 7; if(keys[k[1]] && p.y < canvas.height-20) p.y += 7;
+                    if(keys[k[2]] && p.x > 20) p.x -= 7; if(keys[k[3]] && p.x < canvas.width-20) p.x += 7;
+                });
+                zombies.forEach((z, i) => {
+                    let target = (i % 2 === 0) ? player1 : player2;
+                    let ang = Math.atan2(target.y-z.y, target.x-z.x);
+                    let vx = Math.cos(ang)*3.5, vy = Math.sin(ang)*3.5;
+                    zombies.forEach((other, j) => { if(i!==j && Math.hypot(z.x-other.x, z.y-other.y) < 40) { vx += (z.x-other.x)*0.05; vy += (z.y-other.y)*0.05; } });
+                    z.x += vx; z.y += vy;
+                    if(Math.hypot(player1.x-z.x, player1.y-z.y) < 40 && player1.inv <= 0) { player1.deaths++; player1.inv = 60; }
+                    if(Math.hypot(player2.x-z.x, player2.y-z.y) < 40 && player2.inv <= 0) { player2.deaths++; player2.inv = 60; }
+                });
+                if(player1.inv > 0) player1.inv--; if(player2.inv > 0) player2.inv--;
+                document.getElementById('sub-info').innerText = `P1 Deaths: ${player1.deaths} | P2 Deaths: ${player2.deaths}`;
+            }
+        }
+    }
+
+    function over(msg) { isRunning = false; document.getElementById('end-screen').style.display='flex'; document.getElementById('end-msg').innerText=msg; }
+    setInterval(() => { if(isRunning && mode !== 'solo') { timer--; document.getElementById('status-text').innerText = "TIME: " + timer; if(timer <= 0) over(mode === 'coop' ? (player1.deaths < player2.deaths ? "P1 WINS!" : "P2 WINS!") : "SPIDER-MAN WINS!"); } }, 1000);
+
+    function render() {
+        ctx.fillStyle = "#000"; ctx.fillRect(0,0,canvas.width, canvas.height);
+        if(!isRunning) return;
+        ctx.save();
+        if(mode === 'solo') ctx.translate(canvas.width/2 - player1.x, canvas.height/2 - player1.y);
+        if(mode === 'solo') {
+            ctx.fillStyle = "#222";
+            for(let y=0; y<ROWS; y++) for(let x=0; x<COLS; x++) if(maze[y][x] === 1) ctx.fillRect(x*TILE, y*TILE, TILE, TILE);
+        }
+        ctx.fillStyle = (player1.inv % 10 < 5) ? "#f00" : "#fff";
+        ctx.beginPath(); ctx.arc(player1.x, player1.y, player1.r, 0, 7); ctx.fill();
+        if(mode !== 'solo') {
+            ctx.fillStyle = (mode === 'duo') ? "#0f0" : (player2.inv % 10 < 5 ? "#0af" : "#fff");
+            ctx.beginPath(); ctx.arc(player2.x, player2.y, player2.r || 50, 0, 7); ctx.fill();
+        }
+        zombies.forEach(z => { ctx.fillStyle = "#4f4"; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, 7); ctx.fill(); });
+        bullets.forEach(b => { ctx.fillStyle = "#0ff"; ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, 7); ctx.fill(); });
+        ctx.restore();
+    }
+
+    window.onkeydown = e => keys[e.code] = true; window.onkeyup = e => keys[e.code] = false;
+    window.onmousemove = e => { mouse.x = e.clientX; mouse.y = e.clientY; }; window.onmousedown = () => mouse.down = true; window.onmouseup = () => mouse.down = false;
+    (function loop() { update(); render(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
